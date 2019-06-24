@@ -1,0 +1,92 @@
+package parallel;
+
+use FindBin;                 # locate this script
+use lib "$FindBin::Bin/../..";  # use the 2 lv up parent directory
+use warnings;
+use strict;
+use Parallel::ForkManager;
+use perllib::Me::Nu_cnt::checkfile;
+
+											# write tmp file method, read tmp file method
+sub calc #($file,$liglength,$row_param,$cores,\&wtfile,\&rdfile,\&data_proc, $tmpFile_path)
+{
+		my $fileename = shift;
+		my $liglength = shift;
+		my $row_param = shift;
+		my $cores = shift;
+		my $tmpFile_path=shift||"./parallel_tmp";
+		my $reads_anal_methodRef=shift; 
+		my $tmpHash_output_methodRef=shift; 
+		my $reads_output_methodRef=shift;
+
+		
+		
+		my $readrows = &checkfile::SetRowNum ($fileename,$row_param); # ensure readrows in the scope
+
+		#########################################################
+
+
+ 		my $numberofsequences = $readrows;# divides all lines into packets of four
+		my $lines_per_core = int($numberofsequences/($cores-1));
+		my $pm = Parallel::ForkManager->new($cores);
+			
+	Process:	
+	for(my $core_index = 0; $core_index < $cores; ++$core_index)
+	{
+		my $start_line=$core_index*$lines_per_core;
+		my $end_line=($core_index+1)*$lines_per_core;
+		if ($core_index==($cores-1) && !($end_line==$numberofsequences)) {$end_line=$readrows;}
+		
+		$pm->start and next Process;
+		my %temp_storage; my $temp_storage_ref = \%temp_storage;	
+		open(SEQ, $fileename) or die "failed to open fh for core[$core_index]"; # crashes unless open a fh for every process
+				#print "core[$core_index]"."start:$start_line"."\t"."end:$end_line"."\n";
+		#####################
+		my $loopcnt1=0;
+		for (my $i = 0; $i < $numberofsequences; ++$i)
+		{
+
+			my $reads2 = <SEQ>;# is the actual sequence
+			if( $.<= $start_line) {next;} if($.>$end_line) {last;} #only analyse the lines in scope
+						#if (!defined($reads2)) {
+						#	#print $.."line number of core[$core_index] error \n";
+						#	last;
+						#}else{print $.."line of core[$core_index] is ".$reads2."\n";
+						#	  }
+			
+			chomp $reads2; 			my $reads2Copy = $reads2;
+			################## !!!process of the reads #######################
+		    $temp_storage_ref=$reads_anal_methodRef->($temp_storage_ref,$reads2);
+			
+			################## !!!process of the reads #######################
+			$loopcnt1++;
+		}
+		print "core[$core_index]: looped $loopcnt1 cycs \n";
+		$fileename =~ tr/\.txt//d; # get rid of the suffix of original file
+		
+		my $fileename_tmp = $fileename."_core[$core_index]". "_hash_tmp.txt";
+		$tmpHash_output_methodRef->($temp_storage_ref,$fileename_tmp,$liglength,$tmpFile_path);#param1=hashref for Input; #param2=file name for out put; #param3=ligand length; #param4=output path
+		#####################
+		close SEQ;
+		$pm->finish;
+
+
+	}
+		
+	$pm->wait_all_children;
+	
+	#prepare a tmp file list for final processing
+	my @tmp_files;
+	for(my $core_index = 0; $core_index < $cores; ++$core_index)
+	{
+		$fileename =~ tr/\.txt//d; # get rid of the suffix of original file
+		my $fileename_tmp = $fileename."_core[$core_index]". "_hash_tmp.txt";
+		push (@tmp_files,$fileename_tmp);
+	}
+
+	return ($tmpFile_path,\@tmp_files)	
+
+
+}
+
+1;	
