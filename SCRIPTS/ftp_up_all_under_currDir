@@ -1,0 +1,9 @@
+#!/bin/sh
+
+ftp -n webin.ebi.ac.uk << EOF 
+user era-drop-328 NH9phQR8
+prompt
+bin
+mput *
+bye
+EOF
